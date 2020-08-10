@@ -6,15 +6,9 @@ import (
 )
 
 type node struct {
-	data           interface{}
-	prev, next, at int32
-	flags          uint8
+	data       interface{}
+	prev, next int32
 }
-
-const (
-	flagFree = uint8(0)
-	flagBusy = uint8(1)
-)
 
 type FreeArray struct {
 	lock      sync.Mutex
@@ -29,11 +23,9 @@ func New(capacity int32) *FreeArray {
 	items := make([]node, capacity)
 	for i := range items {
 		items[i] = node{
-			next:  int32(i + 1),
-			at:    int32(i),
-			prev:  int32(i - 1),
-			data:  nil,
-			flags: flagFree,
+			next: int32(i + 1),
+			prev: int32(i - 1),
+			data: nil,
 		}
 	}
 	items[0].prev = -1
@@ -46,7 +38,10 @@ func New(capacity int32) *FreeArray {
 }
 
 //Alloc Alloc a free node, and returns the index of the node. If alloc nothing, returns -1
-func (l *FreeArray) Alloc() int32 {
+func (l *FreeArray) Alloc(data interface{}) int32 {
+	if data == nil {
+		panic("data cannot be nil")
+	}
 	l.lock.Lock()
 	defer l.lock.Unlock()
 	if l.freehead < 0 {
@@ -54,12 +49,12 @@ func (l *FreeArray) Alloc() int32 {
 	}
 	index := l.freehead
 	node := &l.items[index]
-	if (node.flags & flagBusy) != 0 {
+	if node.data != nil {
 		return -1
 	}
-	l.removeNode(node, &l.freehead)
-	l.insertBefore(node, &l.busyhead)
-	node.flags |= flagBusy
+	l.removeNode(node, index, &l.freehead)
+	l.insertBefore(node, index, &l.busyhead)
+	node.data = data
 	l.allocated++
 	return index
 }
@@ -68,12 +63,12 @@ func (l *FreeArray) Release(index int32) {
 	l.lock.Lock()
 	defer l.lock.Unlock()
 	node := &l.items[index]
-	if (node.flags & flagBusy) == 0 {
+	if node.data == nil {
 		return
 	}
-	l.removeNode(node, &l.busyhead)
-	l.insertBefore(node, &l.freehead)
-	node.flags &= ^flagBusy
+	l.removeNode(node, index, &l.busyhead)
+	l.insertBefore(node, index, &l.freehead)
+	node.data = nil
 	l.allocated--
 }
 
@@ -81,35 +76,32 @@ func (l *FreeArray) Data(index int) interface{} {
 	if index < 0 || index >= len(l.items) {
 		return nil
 	}
-	if node := l.items[index]; (node.flags & flagBusy) != 0 {
-		return node.data
-	}
-	return nil
+	return l.items[index]
 }
 
-func (l *FreeArray) removeNode(node *node, headAt *int32) {
+func (l *FreeArray) removeNode(node *node, index int32, headAt *int32) {
 	if node.next >= 0 {
 		l.items[node.next].prev = node.prev
 	}
 	if node.prev >= 0 {
 		l.items[node.prev].next = node.next
 	}
-	if *headAt == node.at {
+	if *headAt == index {
 		*headAt = node.next
 	}
 }
 
-func (l *FreeArray) insertBefore(node *node, headAt *int32) {
+func (l *FreeArray) insertBefore(node *node, index int32, headAt *int32) {
 	if *headAt < 0 {
 		node.next = -1
 		node.prev = -1
 	} else {
 		head := &l.items[*headAt]
-		head.prev = node.at
+		head.prev = index
 		node.next = *headAt
 		node.prev = -1
 	}
-	*headAt = node.at
+	*headAt = index
 }
 
 func (l *FreeArray) printState() {
