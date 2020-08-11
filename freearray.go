@@ -76,7 +76,7 @@ func (l *FreeArray) Data(index int) interface{} {
 	if index < 0 || index >= len(l.items) {
 		return nil
 	}
-	return l.items[index]
+	return l.items[index].data
 }
 
 func (l *FreeArray) removeNode(node *node, index int32, headAt *int32) {
